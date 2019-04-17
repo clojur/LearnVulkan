@@ -108,6 +108,7 @@ private:
 	VkFormat _swapChainImageFormat;
 	VkExtent2D _swapChainExtent;
 	std::vector<VkImageView> _swapChainImageViews;
+	VkPipelineLayout _pipelineLayout;
 
 	void initWindow()
 	{
@@ -139,6 +140,7 @@ private:
 
 	void cleanup()
 	{
+		vkDestroyPipelineLayout(_vkDevice, _pipelineLayout, nullptr);
 		for (auto imageView : _swapChainImageViews)
 		{
 			vkDestroyImageView(_vkDevice, imageView, nullptr);
@@ -633,6 +635,7 @@ private:
 
 	void createGraphicsPipeline()
 	{
+		/*可编程阶段配置*/
 		auto vertShaderCode = readFile("shaders/vert.spv");
 		auto fragShaderCode = readFile("shaders/frag.spv");
 
@@ -655,6 +658,111 @@ private:
 			vertShaderStageInfo,
 			fragShaderStageInfo
 		};
+
+		/*固定功能配置*/
+		//顶点输入
+		VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
+		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+		vertexInputInfo.vertexBindingDescriptionCount = 0;
+		vertexInputInfo.pVertexBindingDescriptions = nullptr;
+		vertexInputInfo.vertexAttributeDescriptionCount = 0;
+		vertexInputInfo.pVertexAttributeDescriptions = nullptr;
+		//输入装配
+		VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
+		inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+		inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+		inputAssembly.primitiveRestartEnable = VK_FALSE;
+		//视口裁剪
+		VkViewport viewport = {};
+		viewport.x = 0.0f;
+		viewport.y = 0.0f;
+		viewport.width = (float)_swapChainExtent.width;
+		viewport.height = (float)_swapChainExtent.height;
+		viewport.minDepth = 0.0f;
+		viewport.maxDepth = 1.0f;
+
+		VkRect2D scissor = {};
+		scissor.offset = {0,0};
+		scissor.extent = _swapChainExtent;
+
+		VkPipelineViewportStateCreateInfo viewportState = {};
+		viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+		viewportState.viewportCount = 1;
+		viewportState.pViewports = &viewport;
+		viewportState.scissorCount = 1;
+		viewportState.pScissors = &scissor;
+
+		//光栅化
+		VkPipelineRasterizationStateCreateInfo rasterizationStage = {};
+		rasterizationStage.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+		rasterizationStage.depthClampEnable = VK_FALSE;
+		rasterizationStage.rasterizerDiscardEnable = VK_FALSE;
+		rasterizationStage.polygonMode = VK_POLYGON_MODE_FILL;
+		rasterizationStage.lineWidth = 1.0f;
+		rasterizationStage.cullMode = VK_CULL_MODE_BACK_BIT;
+		rasterizationStage.frontFace = VK_FRONT_FACE_CLOCKWISE;
+		rasterizationStage.depthBiasEnable = VK_FALSE;
+		rasterizationStage.depthBiasConstantFactor = 0.0f;
+		rasterizationStage.depthBiasClamp = 0.0f;
+		rasterizationStage.depthBiasSlopeFactor = 0.0f;
+
+		//多重采样
+		VkPipelineMultisampleStateCreateInfo multisampleStage = {};
+		multisampleStage.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+		multisampleStage.sampleShadingEnable = VK_FALSE;
+		multisampleStage.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+		multisampleStage.minSampleShading = 1.0f;
+		multisampleStage.pSampleMask = nullptr;
+		multisampleStage.alphaToCoverageEnable = VK_FALSE;
+		multisampleStage.alphaToOneEnable = VK_FALSE;
+
+		//深度和模板测试
+		VkPipelineDepthStencilStateCreateInfo depthStencilStage = {};
+
+		//颜色混合
+		VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
+		colorBlendAttachment.blendEnable = VK_FALSE;
+		colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+		colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+		colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+		colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+		colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+		colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+
+		VkPipelineColorBlendStateCreateInfo colorBlendStage = {};
+		colorBlendStage.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+		colorBlendStage.logicOpEnable = VK_FALSE;
+		colorBlendStage.attachmentCount = 1;
+		colorBlendStage.pAttachments = &colorBlendAttachment;
+		colorBlendStage.blendConstants[0] = 0.0f; 
+		colorBlendStage.blendConstants[1] = 0.0f;
+		colorBlendStage.blendConstants[2] = 0.0f;
+		colorBlendStage.blendConstants[3] = 0.0f;
+
+		//动态状态
+		VkDynamicState dynamicStages[] = {
+			VK_DYNAMIC_STATE_VIEWPORT,
+			VK_DYNAMIC_STATE_LINE_WIDTH
+		};
+
+		VkPipelineDynamicStateCreateInfo dynamicStage = {};
+		dynamicStage.sType= VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+		dynamicStage.dynamicStateCount = 2;
+		dynamicStage.pDynamicStates = dynamicStages;
+
+		//管线布局
+		VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
+		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+		pipelineLayoutInfo.setLayoutCount = 0;
+		pipelineLayoutInfo.pSetLayouts = nullptr;
+		pipelineLayoutInfo.pushConstantRangeCount = 0;
+		pipelineLayoutInfo.pPushConstantRanges = nullptr;
+
+		if (vkCreatePipelineLayout(_vkDevice, &pipelineLayoutInfo, nullptr, &_pipelineLayout)
+			!= VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create pipeline layout!");
+		}
 
 		vkDestroyShaderModule(_vkDevice, fragShaderModule, nullptr);
 		vkDestroyShaderModule(_vkDevice, vertShaderModule, nullptr);
