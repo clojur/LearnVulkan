@@ -108,7 +108,10 @@ private:
 	VkFormat _swapChainImageFormat;
 	VkExtent2D _swapChainExtent;
 	std::vector<VkImageView> _swapChainImageViews;
+	VkRenderPass _renderPass;
 	VkPipelineLayout _pipelineLayout;
+	VkPipeline _graphicPipeline;
+	std::vector<VkFramebuffer> _swapChainFramembuffers;
 
 	void initWindow()
 	{
@@ -127,7 +130,9 @@ private:
 		createLogicalDevice();
 		createSwapChain();
 		createImageViews();
+		createRenderPass();
 		createGraphicsPipeline();
+		createFramebuffers();
 	}
 
 	void mainLoop()
@@ -140,7 +145,14 @@ private:
 
 	void cleanup()
 	{
+		for (auto framebuffer : _swapChainFramembuffers)
+		{
+			vkDestroyFramebuffer(_vkDevice, framebuffer, nullptr);
+		}
+
+		vkDestroyPipeline(_vkDevice, _graphicPipeline, nullptr);
 		vkDestroyPipelineLayout(_vkDevice, _pipelineLayout, nullptr);
+		vkDestroyRenderPass(_vkDevice, _pipelineLayout, nullptr);
 		for (auto imageView : _swapChainImageViews)
 		{
 			vkDestroyImageView(_vkDevice, imageView, nullptr);
@@ -764,6 +776,29 @@ private:
 			throw std::runtime_error("failed to create pipeline layout!");
 		}
 
+		VkGraphicsPipelineCreateInfo pipelineInfo = {};
+		pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+		pipelineInfo.stageCount = 2;
+		pipelineInfo.pStages = shaderStages;
+		pipelineInfo.pVertexInputState = &vertexInputInfo;
+		pipelineInfo.pInputAssemblyState = &inputAssembly;
+		pipelineInfo.pViewportState = &viewportState;
+		pipelineInfo.pRasterizationState = &rasterizationStage;
+		pipelineInfo.pMultisampleState = &multisampleStage;
+		pipelineInfo.pDepthStencilState = &depthStencilStage;
+		pipelineInfo.pColorBlendState = &colorBlendStage;
+		pipelineInfo.pDynamicState = &dynamicStage;
+		pipelineInfo.layout = _pipelineLayout;
+		pipelineInfo.renderPass = _renderPass;
+		pipelineInfo.subpass = 0;
+		pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+		pipelineInfo.basePipelineIndex = -1;
+		if (vkCreateGraphicsPipelines(_vkDevice, VK_NULL_HANDLE, 1, &pipelineInfo,
+			nullptr, &_graphicPipeline) != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create graphics pipeline!");
+		}
+
 		vkDestroyShaderModule(_vkDevice, fragShaderModule, nullptr);
 		vkDestroyShaderModule(_vkDevice, vertShaderModule, nullptr);
 	}
@@ -784,6 +819,69 @@ private:
 		return shaderMoudule;
 	}
 
+	void createRenderPass()
+	{
+		VkAttachmentDescription colorAttachment = {};
+		colorAttachment.format = _swapChainImageFormat;
+		colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+		colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+		VkAttachmentReference colorAttachmentRef = {};
+		colorAttachmentRef.attachment = 0;
+		colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+		VkSubpassDescription subpass = {};
+		subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+		subpass.colorAttachmentCount = 1;
+		subpass.pColorAttachments = &colorAttachmentRef;
+
+		VkRenderPassCreateInfo renderPassInfo = {};
+		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+		renderPassInfo.attachmentCount = 1;
+		renderPassInfo.pAttachments = &colorAttachment;
+		renderPassInfo.subpassCount = 1;
+		renderPassInfo.pSubpasses = &subpass;
+
+		if (vkCreateRenderPass(_vkDevice, &renderPassInfo, nullptr,
+			&_renderPass) != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create render pass!");
+		}
+	}
+
+	void createFramebuffers()
+	{
+		_swapChainFramembuffers.resize(_swapChainImageViews.size());
+
+		size_t fbCount = _swapChainFramembuffers.size();
+		for (size_t i = 0; i < fbCount; ++i)
+		{
+			VkImageView attachments[]={
+				_swapChainImageViews[i]
+			};
+
+			VkFramebufferCreateInfo framebufferInfo = {};
+			framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+			framebufferInfo.renderPass = _renderPass;
+			framebufferInfo.attachmentCount = 1;
+			framebufferInfo.pAttachments = attachments;
+			framebufferInfo.width = _swapChainExtent.width;
+			framebufferInfo.height = _swapChainExtent.height;
+			framebufferInfo.layers = 1;
+
+			if (vkCreateFramebuffer(_vkDevice, &framebufferInfo,
+				nullptr,&_swapChainFramembuffers[i]) != VK_SUCCESS)
+			{
+				throw std::runtime_error("failed to create framebuffer!");
+			}
+
+		}
+	}
 
 };
 
