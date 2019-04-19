@@ -112,6 +112,10 @@ private:
 	VkPipelineLayout _pipelineLayout;
 	VkPipeline _graphicPipeline;
 	std::vector<VkFramebuffer> _swapChainFramembuffers;
+	VkCommandPool _commandPool;
+	std::vector<VkCommandBuffer> _commandBuffers;
+	VkSemaphore _imageAvailableSemaphore;
+	VkSemaphore _renderFinishedSemaphore;
 
 	void initWindow()
 	{
@@ -121,6 +125,7 @@ private:
 		_window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
 		
 	}
+
 	void initVulkan()
 	{
 		createInstance();
@@ -133,6 +138,9 @@ private:
 		createRenderPass();
 		createGraphicsPipeline();
 		createFramebuffers();
+		createCommandPool();
+		createCommandBuffers();
+		createSemaphores();
 	}
 
 	void mainLoop()
@@ -140,11 +148,16 @@ private:
 		while (!glfwWindowShouldClose(_window))
 		{
 			glfwPollEvents();
+			drawFrame();
 		}
 	}
 
 	void cleanup()
 	{
+		vkDestroySemaphore(_vkDevice, _renderFinishedSemaphore, nullptr);
+		vkDestroySemaphore(_vkDevice, _imageAvailableSemaphore, nullptr);
+
+		vkDestroyCommandPool(_vkDevice, _commandPool, nullptr);
 		for (auto framebuffer : _swapChainFramembuffers)
 		{
 			vkDestroyFramebuffer(_vkDevice, framebuffer, nullptr);
@@ -881,6 +894,91 @@ private:
 			}
 
 		}
+	}
+
+	void createCommandPool()
+	{
+		QueueFamilyIndices queueFamilyIndices = findQueueFamilies(_physicalDevice);
+
+		VkCommandPoolCreateInfo poolInfo = {};
+		poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+		poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily;
+		poolInfo.flags = 0;
+		if (vkCreateCommandPool(_vkDevice, &poolInfo, nullptr, &_commandPool)
+			!= VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create command pool!");
+		}
+	}
+
+	void createCommandBuffers()
+	{
+		_commandBuffers.resize(_swapChainFramembuffers.size());
+
+		VkCommandBufferAllocateInfo allocInfo = {};
+		allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		allocInfo.commandBufferCount = (uint32_t)_commandBuffers.size();
+		allocInfo.commandPool = _commandPool;
+		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+		if (vkAllocateCommandBuffers(_vkDevice, &allocInfo,
+			_commandBuffers.data()) != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create command buffers!");
+		}
+
+		size_t commandBufferCount = _commandBuffers.size();
+		for (size_t i = 0; i < commandBufferCount; ++i)
+		{
+			VkCommandBufferBeginInfo beginInfo = {};
+			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+			beginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+			beginInfo.pInheritanceInfo = nullptr;
+			if (vkBeginCommandBuffer(_commandBuffers[i], &beginInfo)
+				!=VK_SUCCESS)
+			{
+				throw std::runtime_error("failed to create begin recording command buffer!");
+			}
+
+			//开始渲染流程
+			VkRenderPassBeginInfo renderPassInfo = {};
+			renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+			renderPassInfo.renderPass = _renderPass;
+			renderPassInfo.framebuffer = _swapChainFramembuffers[i];
+			renderPassInfo.renderArea.offset = {0,0};
+			renderPassInfo.renderArea.extent = _swapChainExtent;
+			VkClearValue clearColor = {0.0f,0.0f,0.0f,1.0f};
+			renderPassInfo.clearValueCount = 1;
+			renderPassInfo.pClearValues = &clearColor;
+
+			vkCmdBeginRenderPass(_commandBuffers[i],&renderPassInfo,VK_SUBPASS_CONTENTS_INLINE);
+			vkCmdBindPipeline(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicPipeline);
+			vkCmdDraw(_commandBuffers[i], 3, 1, 0, 0);
+			vkCmdEndRenderPass(_commandBuffers[i]);
+
+			if (vkEndCommandBuffer(_commandBuffers[i]) != VK_SUCCESS)
+			{
+				throw std::runtime_error("failed to record command buffer!");
+			}
+		}
+	}
+
+	void createSemaphores()
+	{
+		VkSemaphoreCreateInfo semaphoreInfo = {};
+		semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+		if (vkCreateSemaphore(_vkDevice, &semaphoreInfo, nullptr,
+			&_imageAvailableSemaphore) != VK_SUCCESS ||
+			vkCreateSemaphore(_vkDevice, &semaphoreInfo, nullptr,
+				&_renderFinishedSemaphore) != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create semaphores!");
+		}
+	}
+
+	void drawFrame()
+	{
+
 	}
 
 };
