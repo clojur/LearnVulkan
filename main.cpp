@@ -103,6 +103,8 @@ private:
 	VkQueue  _graphicsQueue;
 	VkQueue _presentQueue;
 	VkSurfaceKHR _surface;
+	VkViewport _viewport;
+	VkRect2D _scissor;
 	VkSwapchainKHR _swapChain;
 	std::vector<VkImage> _swapChainImages;
 	VkFormat _swapChainImageFormat;
@@ -150,6 +152,8 @@ private:
 			glfwPollEvents();
 			drawFrame();
 		}
+
+		vkDeviceWaitIdle(_vkDevice);
 	}
 
 	void cleanup()
@@ -165,7 +169,7 @@ private:
 
 		vkDestroyPipeline(_vkDevice, _graphicPipeline, nullptr);
 		vkDestroyPipelineLayout(_vkDevice, _pipelineLayout, nullptr);
-		vkDestroyRenderPass(_vkDevice, _pipelineLayout, nullptr);
+		vkDestroyRenderPass(_vkDevice,_renderPass, nullptr);
 		for (auto imageView : _swapChainImageViews)
 		{
 			vkDestroyImageView(_vkDevice, imageView, nullptr);
@@ -698,24 +702,24 @@ private:
 		inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 		inputAssembly.primitiveRestartEnable = VK_FALSE;
 		//视口裁剪
-		VkViewport viewport = {};
-		viewport.x = 0.0f;
-		viewport.y = 0.0f;
-		viewport.width = (float)_swapChainExtent.width;
-		viewport.height = (float)_swapChainExtent.height;
-		viewport.minDepth = 0.0f;
-		viewport.maxDepth = 1.0f;
+		_viewport = {};
+		_viewport.x = 0.0f;
+		_viewport.y = 0.0f;
+		_viewport.width = (float)_swapChainExtent.width;
+		_viewport.height = (float)_swapChainExtent.height;
+		_viewport.minDepth = 0.0f;
+		_viewport.maxDepth = 1.0f;
 
-		VkRect2D scissor = {};
-		scissor.offset = {0,0};
-		scissor.extent = _swapChainExtent;
+		_scissor = {};
+		_scissor.offset = {0,0};
+		_scissor.extent = _swapChainExtent;
 
 		VkPipelineViewportStateCreateInfo viewportState = {};
 		viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
 		viewportState.viewportCount = 1;
-		viewportState.pViewports = &viewport;
+		viewportState.pViewports = &_viewport;
 		viewportState.scissorCount = 1;
-		viewportState.pScissors = &scissor;
+		viewportState.pScissors = &_scissor;
 
 		//光栅化
 		VkPipelineRasterizationStateCreateInfo rasterizationStage = {};
@@ -860,11 +864,22 @@ private:
 		renderPassInfo.subpassCount = 1;
 		renderPassInfo.pSubpasses = &subpass;
 
+		VkSubpassDependency dependency = {};
+		dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+		dependency.dstSubpass = 0;
+		dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+			| VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		renderPassInfo.dependencyCount = 1;
+		renderPassInfo.pDependencies = &dependency;
+
 		if (vkCreateRenderPass(_vkDevice, &renderPassInfo, nullptr,
 			&_renderPass) != VK_SUCCESS)
 		{
 			throw std::runtime_error("failed to create render pass!");
 		}
+
+		
 	}
 
 	void createFramebuffers()
@@ -952,6 +967,8 @@ private:
 			renderPassInfo.pClearValues = &clearColor;
 
 			vkCmdBeginRenderPass(_commandBuffers[i],&renderPassInfo,VK_SUBPASS_CONTENTS_INLINE);
+			vkCmdSetViewport(_commandBuffers[i], 0, 1,&_viewport);
+			vkCmdSetScissor(_commandBuffers[i], 0, 1, &_scissor);
 			vkCmdBindPipeline(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicPipeline);
 			vkCmdDraw(_commandBuffers[i], 3, 1, 0, 0);
 			vkCmdEndRenderPass(_commandBuffers[i]);
@@ -978,7 +995,44 @@ private:
 
 	void drawFrame()
 	{
+		//获取交换链图片索引
+		uint32_t imageIndex;
+		vkAcquireNextImageKHR(_vkDevice, _swapChain,
+			std::numeric_limits<uint64_t>::max()
+			, _imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
 
+		//提交指令缓冲
+		VkSemaphore waitSemaphores[] = { _imageAvailableSemaphore };
+		VkPipelineStageFlags waitStages[] = {
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+		};
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.waitSemaphoreCount = 1;
+		submitInfo.pWaitSemaphores = waitSemaphores;
+		submitInfo.pWaitDstStageMask = waitStages;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &_commandBuffers[imageIndex];
+		VkSemaphore signalSemaphores[] = {_renderFinishedSemaphore};
+		submitInfo.signalSemaphoreCount = 1;
+		submitInfo.pSignalSemaphores = signalSemaphores;
+		if (vkQueueSubmit(_graphicsQueue, 1,
+			&submitInfo, VK_NULL_HANDLE) != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to submit \
+				draw command buffer!");
+		}
+
+		VkSwapchainKHR swapChains[] = {_swapChain};
+		VkPresentInfoKHR presentInfo = {};
+		presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+		presentInfo.waitSemaphoreCount = 1;
+		presentInfo.pWaitSemaphores = signalSemaphores;
+		presentInfo.swapchainCount = 1;
+		presentInfo.pSwapchains = swapChains;
+		presentInfo.pImageIndices = &imageIndex;
+		presentInfo.pResults = nullptr;
+		vkQueuePresentKHR(_presentQueue, &presentInfo);
 	}
 
 };
