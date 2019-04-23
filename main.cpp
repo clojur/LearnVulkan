@@ -14,10 +14,13 @@
 #include <set>
 #include<algorithm>
 #include <fstream>
+#include<optional>
 
 
 const int WIDTH = 800;
 const int HEIGHT = 600;
+
+const int MAX_FRAMES_IN_FLIGHT = 2;
 
 const std::vector<const char*> validationLayers = {
 		"VK_LAYER_LUNARG_standard_validation"
@@ -56,13 +59,11 @@ const bool enableValidationLayers = true;
 
 struct QueueFamilyIndices
 {
-	int graphicsFamily = -1;
-	int presentFamily = -1;
+	std::optional<uint32_t> graphicsFamily;
+	std::optional<uint32_t> presentFamily;
 
-	bool isComplete()
-	{
-		return graphicsFamily >= 0
-				&&presentFamily>=0;
+	bool isComplete() {
+		return graphicsFamily.has_value() && presentFamily.has_value();
 	}
 };
 
@@ -116,8 +117,10 @@ private:
 	std::vector<VkFramebuffer> _swapChainFramembuffers;
 	VkCommandPool _commandPool;
 	std::vector<VkCommandBuffer> _commandBuffers;
-	VkSemaphore _imageAvailableSemaphore;
-	VkSemaphore _renderFinishedSemaphore;
+	std::vector<VkSemaphore> _imageAvailableSemaphores;
+	std::vector<VkSemaphore> _renderFinishedSemaphores;
+	size_t _currentFrame = 0;
+	std::vector<VkFence> _inFlightFences;
 
 	void initWindow()
 	{
@@ -142,7 +145,7 @@ private:
 		createFramebuffers();
 		createCommandPool();
 		createCommandBuffers();
-		createSemaphores();
+		createSyncObjects();
 	}
 
 	void mainLoop()
@@ -158,8 +161,12 @@ private:
 
 	void cleanup()
 	{
-		vkDestroySemaphore(_vkDevice, _renderFinishedSemaphore, nullptr);
-		vkDestroySemaphore(_vkDevice, _imageAvailableSemaphore, nullptr);
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+		{
+			vkDestroySemaphore(_vkDevice, _renderFinishedSemaphores[i], nullptr);
+			vkDestroySemaphore(_vkDevice, _imageAvailableSemaphores[i], nullptr);
+			vkDestroyFence(_vkDevice, _inFlightFences[i], nullptr);
+		}
 
 		vkDestroyCommandPool(_vkDevice, _commandPool, nullptr);
 		for (auto framebuffer : _swapChainFramembuffers)
@@ -430,8 +437,8 @@ private:
 
 		QueueFamilyIndices indices = findQueueFamilies(_physicalDevice);
 		std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-		std::set<int> uniqueQueueFamilies = {indices.graphicsFamily,
-			indices.presentFamily};
+		std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(),
+			indices.presentFamily.value()};
 
 		float queuePriority = 1.0f;
 		for (int queueFamily : uniqueQueueFamilies)
@@ -468,8 +475,8 @@ private:
 			throw std::runtime_error("failed to create logical device!");
 		}
 
-		vkGetDeviceQueue(_vkDevice, indices.graphicsFamily, 0, &_graphicsQueue);
-		vkGetDeviceQueue(_vkDevice,indices.presentFamily,0,&_presentQueue);
+		vkGetDeviceQueue(_vkDevice, indices.graphicsFamily.value(), 0, &_graphicsQueue);
+		vkGetDeviceQueue(_vkDevice,indices.presentFamily.value(),0,&_presentQueue);
 	}
 
 	void createSurface()
@@ -601,7 +608,7 @@ private:
 		createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
 		QueueFamilyIndices indices = findQueueFamilies(_physicalDevice);
-		uint32_t queueFamilyIndices[] = {(uint32_t)indices.graphicsFamily,(uint32_t)indices.presentFamily};
+		uint32_t queueFamilyIndices[] = {indices.graphicsFamily.value(),indices.presentFamily.value()};
 		if (indices.graphicsFamily != indices.presentFamily)
 		{
 			createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
@@ -757,10 +764,12 @@ private:
 		colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
 		colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
 		colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+		colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
 		VkPipelineColorBlendStateCreateInfo colorBlendStage = {};
 		colorBlendStage.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
 		colorBlendStage.logicOpEnable = VK_FALSE;
+		colorBlendStage.logicOp = VK_LOGIC_OP_COPY;
 		colorBlendStage.attachmentCount = 1;
 		colorBlendStage.pAttachments = &colorBlendAttachment;
 		colorBlendStage.blendConstants[0] = 0.0f; 
@@ -804,12 +813,12 @@ private:
 		pipelineInfo.pMultisampleState = &multisampleStage;
 		pipelineInfo.pDepthStencilState = &depthStencilStage;
 		pipelineInfo.pColorBlendState = &colorBlendStage;
-		pipelineInfo.pDynamicState = &dynamicStage;
+		//pipelineInfo.pDynamicState = &dynamicStage;
 		pipelineInfo.layout = _pipelineLayout;
 		pipelineInfo.renderPass = _renderPass;
 		pipelineInfo.subpass = 0;
 		pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
-		pipelineInfo.basePipelineIndex = -1;
+		//pipelineInfo.basePipelineIndex = -1;
 		if (vkCreateGraphicsPipelines(_vkDevice, VK_NULL_HANDLE, 1, &pipelineInfo,
 			nullptr, &_graphicPipeline) != VK_SUCCESS)
 		{
@@ -917,7 +926,7 @@ private:
 
 		VkCommandPoolCreateInfo poolInfo = {};
 		poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-		poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily;
+		poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value();
 		poolInfo.flags = 0;
 		if (vkCreateCommandPool(_vkDevice, &poolInfo, nullptr, &_commandPool)
 			!= VK_SUCCESS)
@@ -967,8 +976,6 @@ private:
 			renderPassInfo.pClearValues = &clearColor;
 
 			vkCmdBeginRenderPass(_commandBuffers[i],&renderPassInfo,VK_SUBPASS_CONTENTS_INLINE);
-			vkCmdSetViewport(_commandBuffers[i], 0, 1,&_viewport);
-			vkCmdSetScissor(_commandBuffers[i], 0, 1, &_scissor);
 			vkCmdBindPipeline(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicPipeline);
 			vkCmdDraw(_commandBuffers[i], 3, 1, 0, 0);
 			vkCmdEndRenderPass(_commandBuffers[i]);
@@ -980,29 +987,50 @@ private:
 		}
 	}
 
-	void createSemaphores()
+	void createSyncObjects()
 	{
+		_imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		_renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		_inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
 		VkSemaphoreCreateInfo semaphoreInfo = {};
 		semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-		if (vkCreateSemaphore(_vkDevice, &semaphoreInfo, nullptr,
-			&_imageAvailableSemaphore) != VK_SUCCESS ||
-			vkCreateSemaphore(_vkDevice, &semaphoreInfo, nullptr,
-				&_renderFinishedSemaphore) != VK_SUCCESS)
+
+		VkFenceCreateInfo fenceInfo = {};
+		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
 		{
-			throw std::runtime_error("failed to create semaphores!");
+			if (vkCreateSemaphore(_vkDevice, &semaphoreInfo, nullptr,
+				&_imageAvailableSemaphores[i]) != VK_SUCCESS ||
+				vkCreateSemaphore(_vkDevice, &semaphoreInfo, nullptr,
+					&_renderFinishedSemaphores[i]) != VK_SUCCESS
+				||vkCreateFence(_vkDevice,&fenceInfo,nullptr,
+					&_inFlightFences[i])!=VK_SUCCESS)
+			{
+				throw std::runtime_error("failed to create semaphores!");
+			}
 		}
+
 	}
 
 	void drawFrame()
 	{
+		vkWaitForFences(_vkDevice, 1, &_inFlightFences[_currentFrame],
+			VK_TRUE, std::numeric_limits<uint64_t>::max());
+		vkResetFences(_vkDevice, 1, &_inFlightFences[_currentFrame]);
+
 		//获取交换链图片索引
 		uint32_t imageIndex;
 		vkAcquireNextImageKHR(_vkDevice, _swapChain,
 			std::numeric_limits<uint64_t>::max()
-			, _imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+			, _imageAvailableSemaphores[_currentFrame], 
+			VK_NULL_HANDLE, &imageIndex);
 
 		//提交指令缓冲
-		VkSemaphore waitSemaphores[] = { _imageAvailableSemaphore };
+		VkSemaphore waitSemaphores[] = { 
+			_imageAvailableSemaphores[_currentFrame]
+		};
 		VkPipelineStageFlags waitStages[] = {
 			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
 		};
@@ -1013,11 +1041,13 @@ private:
 		submitInfo.pWaitDstStageMask = waitStages;
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &_commandBuffers[imageIndex];
-		VkSemaphore signalSemaphores[] = {_renderFinishedSemaphore};
+		VkSemaphore signalSemaphores[] = {
+			_renderFinishedSemaphores[_currentFrame]
+		};
 		submitInfo.signalSemaphoreCount = 1;
 		submitInfo.pSignalSemaphores = signalSemaphores;
 		if (vkQueueSubmit(_graphicsQueue, 1,
-			&submitInfo, VK_NULL_HANDLE) != VK_SUCCESS)
+			&submitInfo, _inFlightFences[_currentFrame]) != VK_SUCCESS)
 		{
 			throw std::runtime_error("failed to submit \
 				draw command buffer!");
@@ -1033,6 +1063,8 @@ private:
 		presentInfo.pImageIndices = &imageIndex;
 		presentInfo.pResults = nullptr;
 		vkQueuePresentKHR(_presentQueue, &presentInfo);
+
+		_currentFrame = (_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
 };
