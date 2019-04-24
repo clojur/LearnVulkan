@@ -18,6 +18,7 @@
 
 const int WIDTH = 800;
 const int HEIGHT = 600;
+const int MAX_FRAMES_IN_FLIGHT = 2;
 
 const std::vector<const char*> validationLayers = {
 		"VK_LAYER_LUNARG_standard_validation"
@@ -116,8 +117,10 @@ private:
 	std::vector<VkFramebuffer> _swapChainFramembuffers;
 	VkCommandPool _commandPool;
 	std::vector<VkCommandBuffer> _commandBuffers;
-	VkSemaphore _imageAvailableSemaphore;
-	VkSemaphore _renderFinishedSemaphore;
+	std::vector<VkSemaphore> _imageAvailableSemaphores;
+	std::vector<VkSemaphore> _renderFinishedSemaphores;
+	std::vector<VkFence> _inFlightFences;
+	size_t _currentFrame = 0;
 
 	void initWindow()
 	{
@@ -125,7 +128,6 @@ private:
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 		_window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
-		
 	}
 
 	void initVulkan()
@@ -142,7 +144,7 @@ private:
 		createFramebuffers();
 		createCommandPool();
 		createCommandBuffers();
-		createSemaphores();
+		createSyncObjects();
 	}
 
 	void mainLoop()
@@ -158,8 +160,12 @@ private:
 
 	void cleanup()
 	{
-		vkDestroySemaphore(_vkDevice, _renderFinishedSemaphore, nullptr);
-		vkDestroySemaphore(_vkDevice, _imageAvailableSemaphore, nullptr);
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+		{
+			vkDestroySemaphore(_vkDevice, _renderFinishedSemaphores[i], nullptr);
+			vkDestroySemaphore(_vkDevice, _imageAvailableSemaphores[i], nullptr);
+			vkDestroyFence(_vkDevice, _inFlightFences[i], nullptr);
+		}
 
 		vkDestroyCommandPool(_vkDevice, _commandPool, nullptr);
 		for (auto framebuffer : _swapChainFramembuffers)
@@ -871,8 +877,9 @@ private:
 		dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
 		dependency.dstSubpass = 0;
 		dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-		dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
-			| VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		dependency.srcAccessMask = 0;
+		dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		dependency.dstAccessMask= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 		renderPassInfo.dependencyCount = 1;
 		renderPassInfo.pDependencies = &dependency;
 
@@ -984,29 +991,46 @@ private:
 		}
 	}
 
-	void createSemaphores()
+	void createSyncObjects()
 	{
+		_imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		_renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		_inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+
 		VkSemaphoreCreateInfo semaphoreInfo = {};
 		semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-		if (vkCreateSemaphore(_vkDevice, &semaphoreInfo, nullptr,
-			&_imageAvailableSemaphore) != VK_SUCCESS ||
-			vkCreateSemaphore(_vkDevice, &semaphoreInfo, nullptr,
-				&_renderFinishedSemaphore) != VK_SUCCESS)
+
+		VkFenceCreateInfo fenceInfo = {};
+		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
 		{
-			throw std::runtime_error("failed to create semaphores!");
+			if (vkCreateSemaphore(_vkDevice, &semaphoreInfo, nullptr,
+				&_imageAvailableSemaphores[i]) != VK_SUCCESS ||
+				vkCreateSemaphore(_vkDevice, &semaphoreInfo, nullptr,
+					&_renderFinishedSemaphores[i]) != VK_SUCCESS
+				||vkCreateFence(_vkDevice,&fenceInfo,nullptr,&_inFlightFences[i])!=VK_SUCCESS)
+			{
+				throw std::runtime_error("failed to create semaphores!");
+			}
 		}
 	}
 
 	void drawFrame()
 	{
+		vkWaitForFences(_vkDevice,1,&_inFlightFences[_currentFrame],VK_TRUE,
+			std::numeric_limits<uint64_t>::max());
+		vkResetFences(_vkDevice, 1, &_inFlightFences[_currentFrame]);
+
 		//获取交换链图片索引
 		uint32_t imageIndex;
 		vkAcquireNextImageKHR(_vkDevice, _swapChain,
 			std::numeric_limits<uint64_t>::max()
-			, _imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+			, _imageAvailableSemaphores[_currentFrame], VK_NULL_HANDLE, &imageIndex);
 
 		//提交指令缓冲
-		VkSemaphore waitSemaphores[] = { _imageAvailableSemaphore };
+		VkSemaphore waitSemaphores[] = { _imageAvailableSemaphores[_currentFrame] };
 		VkPipelineStageFlags waitStages[] = {
 			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
 		};
@@ -1017,11 +1041,11 @@ private:
 		submitInfo.pWaitDstStageMask = waitStages;
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &_commandBuffers[imageIndex];
-		VkSemaphore signalSemaphores[] = {_renderFinishedSemaphore};
+		VkSemaphore signalSemaphores[] = {_renderFinishedSemaphores[_currentFrame]};
 		submitInfo.signalSemaphoreCount = 1;
 		submitInfo.pSignalSemaphores = signalSemaphores;
 		if (vkQueueSubmit(_graphicsQueue, 1,
-			&submitInfo, VK_NULL_HANDLE) != VK_SUCCESS)
+			&submitInfo, _inFlightFences[_currentFrame]) != VK_SUCCESS)
 		{
 			throw std::runtime_error("failed to submit \
 				draw command buffer!");
@@ -1037,6 +1061,8 @@ private:
 		presentInfo.pImageIndices = &imageIndex;
 		presentInfo.pResults = nullptr;
 		vkQueuePresentKHR(_presentQueue, &presentInfo);
+
+		_currentFrame = (_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
 };
