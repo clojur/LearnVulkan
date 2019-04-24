@@ -750,6 +750,8 @@ private:
 
 		//颜色混合
 		VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
+		colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+			VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 		colorBlendAttachment.blendEnable = VK_FALSE;
 		colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
 		colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
@@ -771,12 +773,13 @@ private:
 		//动态状态
 		VkDynamicState dynamicStages[] = {
 			VK_DYNAMIC_STATE_VIEWPORT,
+			VK_DYNAMIC_STATE_SCISSOR,
 			VK_DYNAMIC_STATE_LINE_WIDTH
 		};
 
 		VkPipelineDynamicStateCreateInfo dynamicStage = {};
 		dynamicStage.sType= VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-		dynamicStage.dynamicStateCount = 2;
+		dynamicStage.dynamicStateCount = 3;
 		dynamicStage.pDynamicStates = dynamicStages;
 
 		//管线布局
@@ -804,7 +807,7 @@ private:
 		pipelineInfo.pMultisampleState = &multisampleStage;
 		pipelineInfo.pDepthStencilState = &depthStencilStage;
 		pipelineInfo.pColorBlendState = &colorBlendStage;
-		pipelineInfo.pDynamicState = &dynamicStage;
+		pipelineInfo.pDynamicState =&dynamicStage;
 		pipelineInfo.layout = _pipelineLayout;
 		pipelineInfo.renderPass = _renderPass;
 		pipelineInfo.subpass = 0;
@@ -962,15 +965,16 @@ private:
 			renderPassInfo.framebuffer = _swapChainFramembuffers[i];
 			renderPassInfo.renderArea.offset = {0,0};
 			renderPassInfo.renderArea.extent = _swapChainExtent;
-			VkClearValue clearColor = {0.0f,0.0f,0.0f,1.0f};
+			VkClearValue clearColor = {0.2f,0.2f,0.2,1.0f};
 			renderPassInfo.clearValueCount = 1;
 			renderPassInfo.pClearValues = &clearColor;
 
 			vkCmdBeginRenderPass(_commandBuffers[i],&renderPassInfo,VK_SUBPASS_CONTENTS_INLINE);
 			vkCmdSetViewport(_commandBuffers[i], 0, 1,&_viewport);
 			vkCmdSetScissor(_commandBuffers[i], 0, 1, &_scissor);
+			vkCmdSetLineWidth(_commandBuffers[i], 1.0);
 			vkCmdBindPipeline(_commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicPipeline);
-			vkCmdDraw(_commandBuffers[i], 3, 1, 0, 0);
+			vkCmdDraw(_commandBuffers[i], 3, 1, 0,0);
 			vkCmdEndRenderPass(_commandBuffers[i]);
 
 			if (vkEndCommandBuffer(_commandBuffers[i]) != VK_SUCCESS)
