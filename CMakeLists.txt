@@ -11,7 +11,12 @@ if (MSVC_VERSION GREATER_EQUAL "1900")
     endif()
 endif()
 
-include_directories(../glfw/include ../glm ../VulkanSDK/1.1.101.0/Include)
+include_directories(
+../glfw/include 
+../glm 
+../VulkanSDK/1.1.101.0/Include
+../stb
+)
 
 LINK_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -19,17 +24,24 @@ link_libraries(../glfw/lib/glfw3 ../VulkanSDK/1.1.101.0/Lib32/vulkan-1)
 
 list(APPEND
 	ShaderFiles
-	shaders/vertex.vert
-	shaders/pixel.frag
+	resource/shaders/vertex.vert
+	resource/shaders/pixel.frag
 )
 
-source_group(Shaders FILES ${ShaderFiles})
+list(APPEND
+	Textures
+	resource/Textures/texture.jpg
+)
 
-add_subdirectory(shaders)
+source_group(res\\shaders FILES ${ShaderFiles})
+source_group(res\\texutures FILES ${Textures})
+
+add_subdirectory(resource)
 
 add_executable(${PROJECT_NAME} 
 	main.cpp
 	${ShaderFiles}
+	${Textures}
 )
 
 #target_link_libraries(../glfw/lib/glfw3_d)

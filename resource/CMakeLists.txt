@@ -2,7 +2,8 @@ cmake_minimum_required(VERSION 3.10)
 
 set(shaderFiles "vert.spv" "frag.spv")
 
-set(shadersPath ${PROJECT_SOURCE_DIR}/shaders)
+set(shadersPath ${PROJECT_SOURCE_DIR}/resource/shaders)
+set(texturesPath ${PROJECT_SOURCE_DIR}/resource/textures)
 
 set(shaderCompile ${PROJECT_SOURCE_DIR}/../VulkanSDK/1.1.101.0/Bin32/glslangValidator.exe)
 
@@ -22,4 +23,10 @@ add_custom_command(TARGET CompileShaderAndCopy
 	#COMMAND	xcopy /s /c /q /r /y "${shadersPath}/*.spv" "Shaders/"
 	COMMAND	${CMAKE_COMMAND} -E copy  ${shadersPath}/vert.spv ${PROJECT_SOURCE_DIR}/build/${CMAKE_BUILD_TYPE}/Shaders/
 	COMMAND	${CMAKE_COMMAND} -E copy  ${shadersPath}/frag.spv ${PROJECT_SOURCE_DIR}/build/${CMAKE_BUILD_TYPE}/Shaders/
+	COMMAND echo Copy Texture...
+	COMMAND cd ${PROJECT_SOURCE_DIR}/build/${CMAKE_BUILD_TYPE}/
+	COMMAND del /s /q Textures
+	COMMAND rd Textures
+	COMMAND mkdir Textures
+	COMMAND	${CMAKE_COMMAND} -E copy  ${texturesPath}/texture.jpg ${PROJECT_SOURCE_DIR}/build/${CMAKE_BUILD_TYPE}/Textures/
 )
