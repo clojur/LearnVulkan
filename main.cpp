@@ -1,4 +1,8 @@
 
+#ifdef WIN32
+#include<windows.h>
+#endif
+
 #define  GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
@@ -186,7 +190,7 @@ private:
 	VkBuffer _indexBuffer;
 	VkDeviceMemory _indexBufferMemory;
 	std::vector<VkBuffer> _uniformBuffers;
-	std::vector<VkBuffer> _uniformBuffersMemory;
+	std::vector<VkDeviceMemory> _uniformBuffersMemory;
 	VkDescriptorPool _descriptorPool;
 	std::vector<VkDescriptorSet> _descriptorSets;
 	VkImage _textureImage;
@@ -1130,6 +1134,7 @@ private:
 	{
 		vkWaitForFences(_vkDevice,1,&_inFlightFences[_currentFrame],VK_TRUE,
 			std::numeric_limits<uint64_t>::max());
+		vkResetFences(_vkDevice, 1, &_inFlightFences[_currentFrame]);
 
 		//获取交换链图片索引
 		uint32_t imageIndex;
@@ -1165,8 +1170,6 @@ private:
 		VkSemaphore signalSemaphores[] = {_renderFinishedSemaphores[_currentFrame]};
 		submitInfo.signalSemaphoreCount = 1;
 		submitInfo.pSignalSemaphores = signalSemaphores;
-
-		vkResetFences(_vkDevice, 1, &_inFlightFences[_currentFrame]);
 
 		if (vkQueueSubmit(_graphicsQueue, 1,
 			&submitInfo, _inFlightFences[_currentFrame]) != VK_SUCCESS)
@@ -1686,6 +1689,13 @@ private:
 
 int main()
 {
+	TCHAR _szPath[MAX_PATH + 1] = { 0 };
+	GetModuleFileName(NULL, _szPath, MAX_PATH);
+	std::string str = _szPath;
+	size_t i = str.rfind('\\');
+	str=str.substr(0, i);
+	SetCurrentDirectory(str.c_str());
+
 	HelloTriangleApplication app;
 	try
 	{

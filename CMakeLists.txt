@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.14)
 
 project(LearnVulkan)
 set(CMAKE_BUILD_TYPE Debug)
@@ -20,7 +20,7 @@ include_directories(
 
 LINK_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR})
 
-link_libraries(../glfw/lib/glfw3 ../VulkanSDK/1.1.101.0/Lib32/vulkan-1)
+link_libraries(../glfw/lib/x64/debug/glfw3 ../VulkanSDK/1.1.101.0/Lib/vulkan-1)
 
 list(APPEND
 	ShaderFiles
